@@ -12,4 +12,4 @@ I recently completed a Master’s in Data Science & AI, where I developed skills
 ## Projects
 [**LeetCode**](https://github.com/adriavinias/SQL-Portfolio/tree/main/leetcode)
 ## Contact me
-- [**LinkedIn**](www.linkedin.com/in/adrià-viñas-pascual-550262397)
+- [**LinkedIn**](https://www.linkedin.com/in/adrià-viñas-pascual-550262397)
