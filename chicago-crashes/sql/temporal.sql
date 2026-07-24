@@ -1,0 +1,110 @@
+/*
+Months with the highest number of accidents
+*/
+
+SELECT 
+    DT.MONTH AS MONTH, 
+    COUNT(F.CRASH_RECORD_ID) AS NUM_CRASHES
+FROM FACT_CRASH F
+JOIN DIM_TIME DT ON F.TIME_ID = DT.TIME_ID
+GROUP BY DT.MONTH
+ORDER BY NUM_CRASHES DESC
+
+/*
+Months with the highest number of deaths per year, ordered by fatal_injuries
+*/
+
+SELECT 
+    DT.YEAR AS YEAR, 
+    DT.MONTH AS MONTH, 
+    SUM(F.INJURIES_FATAL) AS FATAL_INJURIES
+FROM FACT_CRASH F
+JOIN DIM_TIME DT ON F.TIME_ID = DT.TIME_ID
+GROUP BY DT.YEAR, DT.MONTH
+ORDER BY FATAL_INJURIES DESC
+
+/*
+How does the severity of accidents (proportion of fatal and incapacitating injuries) vary between weekdays and weekends?
+*/
+SELECT 
+	CASE WHEN DT.IS_WEEKEND = 1 THEN 'YES' ELSE 'NO' END AS WEEKEND, 
+    COUNT(F.CRASH_RECORD_ID) AS TOTAL_CRASHES,
+	CAST(
+		ROUND(
+			SUM(
+				CASE 
+					WHEN COALESCE(F.INJURIES_FATAL, 0) > 0 OR 
+						 COALESCE(F.INJURIES_INCAPACITATING, 0) > 0
+						 THEN 1 
+						 ELSE 0 END) * 100.0 / COUNT(F.CRASH_RECORD_ID), 
+		2) 
+	AS TEXT) || ' %' AS PCT_SEVERE_CRASHES
+FROM FACT_CRASH F
+JOIN DIM_TIME DT ON F.TIME_ID = DT.time_id
+GROUP BY WEEKEND
+
+
+/*
+Ratio of fatal accidents to total accidents: 
+determine how many of these accidents resulted in fatalities and compare this figure to the average number of fatal accidents per year.
+*/
+WITH MONTH_METRICS AS (
+    SELECT 
+        DT.YEAR, 
+        DT.MONTH, 
+        COUNT(*) AS TOTAL_CRASHES,
+        SUM(CASE WHEN F.INJURIES_FATAL > 0 THEN 1 ELSE 0 END) AS FATAL_CRASHES
+    FROM FACT_CRASH F
+    JOIN DIM_TIME DT ON F.TIME_ID = DT.TIME_ID
+    GROUP BY DT.YEAR, DT.MONTH
+)
+
+SELECT 
+    YEAR, 
+    MONTH, 
+    FATAL_CRASHES, 
+    TOTAL_CRASHES, 
+    ROUND(FATAL_CRASHES * 100.0 / TOTAL_CRASHES, 3) AS PCT_FATAL,
+    ROUND(AVG(FATAL_CRASHES * 100.0 / TOTAL_CRASHES) OVER(PARTITION BY YEAR), 3) AS YEARLY_AVG_FATAL
+FROM MONTH_METRICS
+ORDER BY PCT_FATAL DESC
+
+/*
+What is the exact time with the highest volume of crashes for each month of the year? 
+*/
+WITH RANKING AS (
+    SELECT DT.YEAR, DT.MONTH, F.CRASH_HOUR, COUNT(F.CRASH_RECORD_ID) as TOTAL_CRASHES, 
+        ROW_NUMBER() OVER(PARTITION BY DT.YEAR, DT.MONTH ORDER BY COUNT(f.CRASH_RECORD_ID) DESC) AS RANK
+    FROM FACT_CRASH F
+    JOIN DIM_TIME DT ON F.TIME_ID = DT.TIME_ID
+    GROUP BY DT.YEAR, DT.MONTH, F.CRASH_HOUR	
+)
+
+SELECT 
+	YEAR,
+	MONTH,
+	CRASH_HOUR,
+	TOTAL_CRASHES
+FROM RANKING
+WHERE RANK = 1
+
+/*
+Is there any correlation between the time of the accident and the time lag before the police are notified? Do nighttime accidents take longer to report?*/
+SELECT 
+    COUNT(F.CRASH_RECORD_ID) AS TOTAL_CRASHES,
+    ROUND(AVG(
+        (JULIANDAY(F.DATE_POLICE_NOTIFIED) - JULIANDAY(STRFTIME('%Y-%M-%D', DT.COMPLETE_DATE) || ' ' || PRINTF('%02D:%02D:00', F.CRASH_HOUR, COALESCE(F.CRASH_MINUTE, 0)))) * 24
+    ), 2) AS AVG_DIFF,
+    CASE
+        WHEN F.CRASH_HOUR BETWEEN 0 AND 6 THEN 'EARLY_MORNING'
+        WHEN F.CRASH_HOUR BETWEEN 7 AND 12 THEN 'MORNING'
+        WHEN F.CRASH_HOUR BETWEEN 13 AND 20 THEN 'AFTERNOON'
+        ELSE 'NIGHT'
+    END AS TIME_SLOT
+FROM FACT_CRASH F
+JOIN DIM_TIME DT ON F.TIME_ID = DT.TIME_ID AND DT.YEAR = 2025
+WHERE (
+    JULIANDAY(F.DATE_POLICE_NOTIFIED)
+    - JULIANDAY(STRFTIME('%Y-%M-%D', DT.COMPLETE_DATE) || ' ' || PRINTF('%02D:%02D:00', F.CRASH_HOUR, COALESCE(F.CRASH_MINUTE, 0)))
+) >= 0
+GROUP BY TIME_SLOT
