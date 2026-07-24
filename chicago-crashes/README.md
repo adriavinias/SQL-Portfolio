@@ -1,4 +1,3 @@
-## Table of contents
 # Chicago Traffic Crash Analysis (2013-2026)
 
 ## Project Context
